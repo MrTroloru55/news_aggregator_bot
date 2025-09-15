@@ -1,1 +1,1 @@
-# news-aggregator_bot
+# news_aggregator_bot

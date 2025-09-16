@@ -3,3 +3,5 @@
 /workspace.xml
 .venv
 venv
+main.db
+session.session

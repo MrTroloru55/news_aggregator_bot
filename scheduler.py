@@ -1,41 +1,73 @@
 # scheduler.py
-# Планировщик (apscheduler) для сбора и отправки новостей
-
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from collector import collect_posts, client
+from collector import collect_posts
 from config import OWNER_ID
-from bot import bot
+import asyncio
+from aiogram import Bot
+from collections import defaultdict
 
 scheduler = AsyncIOScheduler()
 
-async def send_news():
-    """Собираем посты с всех каналов в один дайджест и отправляем владельцу"""
-    posts = await collect_posts(limit=15)
+# Определяем черный список
+BLACKLIST = ['@concertzaal']
+
+def remove_blacklist_words(text: str) -> str:
+    """Удаляет слова из черного списка."""
+    if not text:
+        return ""
+    for word in BLACKLIST:
+        text = text.replace(word, '').strip()
+    return text
+
+async def send_news(bot: Bot):
+    print("Начинаю сбор новостей...")
+    posts = await collect_posts(limit=3)
 
     if not posts:
         await bot.send_message(OWNER_ID, "Сегодня новых новостей нет.")
+        print("Новых постов не найдено.")
         return
 
+    print(f"Найдено {len(posts)} постов. Начинаю отправку...")
+
     # Группируем посты по каналам
-    from collections import defaultdict
     channel_posts = defaultdict(list)
     for p in posts:
-        channel_posts[p['channel']].append(p['text'][:200])  # обрезаем текст для краткости
+        # Применяем фильтр черного списка
+        p['text'] = remove_blacklist_words(p['text'])
+        channel_posts[p['channel']].append(p)
+    
+    # Отправляем дайджест для каждого канала
+    for channel, posts_list in channel_posts.items():
+        digest = f"📌 *{channel}*\n\n"
+        current_digest_length = len(digest)
+        
+        for post in posts_list:
+            # Добавляем разделитель перед каждым постом, кроме первого
+            if len(digest.strip()) > 0:
+                text_to_add = "-------------------\n"
+            else:
+                text_to_add = ""
 
-    # Формируем дайджест
-    digest = "📰 *Новости за сегодня:*\n\n"
-    for channel, msgs in channel_posts.items():
-        digest += f"📌 *{channel}*\n"
-        for msg in msgs:
-            digest += f"- {msg}\n"
-        digest += "\n"
-        await asyncio.sleep(1)  # небольшая пауза между каналами
+            text_to_add += f"- {post['text']}\n"
+            if len(text_to_add.strip()) > 0:
+                text_to_add += "\n"
 
-    # Отправляем одним сообщением
-    await bot.send_message(OWNER_ID, digest, parse_mode="Markdown")
+            if current_digest_length + len(text_to_add) > 4000:
+                await bot.send_message(OWNER_ID, digest, parse_mode="Markdown")
+                await asyncio.sleep(1)
+                digest = f"📌 *{channel}* (продолжение)\n\n"
+                current_digest_length = len(digest)
 
-def setup_scheduler():
-    """Запускаем расписание"""
-    scheduler.add_job(send_news, "cron", hour=9)   # каждый день 9:00
-    scheduler.add_job(send_news, "cron", hour=18)  # каждый день 18:00
+            digest += text_to_add
+            current_digest_length += len(text_to_add)
+
+        if len(digest.strip()) > 0:
+            await bot.send_message(OWNER_ID, digest, parse_mode="Markdown")
+            await asyncio.sleep(1)
+
+    print("Все новости успешно отправлены.")
+            
+def setup_scheduler(bot: Bot):
+    scheduler.add_job(send_news, "interval", minutes=2, args=[bot])
     scheduler.start()

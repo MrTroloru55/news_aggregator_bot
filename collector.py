@@ -9,7 +9,7 @@ import datetime
 # создаём клиент Telethon (userbot)
 client = TelegramClient("session", API_ID, API_HASH)
 
-async def collect_posts(limit=15):
+async def collect_posts(limit=5):
     """Собираем посты из подписанных каналов"""
     results = []
     channels = get_channels()
